@@ -1,5 +1,5 @@
 import { spin } from './game/spin.js';
-import { loadStats, loadBloom, checkHash160s } from './game/wallets.js';
+import { loadStats, loadBloom, checkHash160s, getRawWalletData } from './game/wallets.js';
 import {
   hash160ToAddress,
   randomPrivKey,
@@ -122,8 +122,137 @@ async function main() {
     setMuted(!e.target.checked);
   });
 
+  // Web Workers Parallel Search -----------------------------------------------
+  const workersToggle = document.getElementById('toggle-workers');
+  const threadsInput = document.getElementById('input-threads');
+  const turboBadge = document.getElementById('turbo-badge');
+  const turboSpeedEl = document.getElementById('turbo-speed');
+
+  if (navigator.hardwareConcurrency) {
+    threadsInput.value = Math.max(1, navigator.hardwareConcurrency - 1);
+  }
+
+  let activeWorkers = [];
+  let workerStats = {
+    totalSpins: 0,
+    lastTotalSpins: 0,
+    startTime: 0,
+    intervalId: null,
+    logIntervalId: null
+  };
+
+  async function startWorkers() {
+    if (activeWorkers.length > 0) return;
+
+    log.append('Starting Turbo Parallel Search (Web Workers)...');
+    pullBtn.disabled = true;
+    turboBadge.classList.remove('hidden');
+
+    const threadCount = parseInt(threadsInput.value, 10) || 4;
+    const rawData = await getRawWalletData();
+
+    workerStats.totalSpins = 0;
+    workerStats.lastTotalSpins = 0;
+    workerStats.startTime = Date.now();
+
+    // Spawn workers
+    for (let i = 0; i < threadCount; i++) {
+      const worker = new Worker(
+        new URL('./game/search-worker.js', import.meta.url),
+        { type: 'module' }
+      );
+
+      worker.onmessage = function (e) {
+        const { type, data } = e.data;
+        if (type === 'progress') {
+          workerStats.totalSpins += data.spins;
+        } else if (type === 'win') {
+          stopWorkers();
+
+          const result = data;
+          const matchedAddress = hash160ToAddress(result.match.hash160);
+          log.append(
+            `🎉 MATCH (Web Worker): ${matchedAddress} ` +
+              `(${(Number(result.match.balanceSats) / SATS_PER_BTC).toFixed(8)} BTC)`
+          );
+
+          sfx.win();
+          autospinToggle.checked = false;
+          winDialog.show(result);
+        } else if (type === 'error') {
+          log.append(`[Worker Error]: ${data}`);
+        }
+      };
+
+      worker.postMessage({
+        type: 'init',
+        data: {
+          bloomBits: rawData.bloomBits,
+          bloomM: rawData.bloomM,
+          bloomK: rawData.bloomK,
+          tableBytes: rawData.tableBytes
+        }
+      });
+
+      worker.postMessage({ type: 'start' });
+      activeWorkers.push(worker);
+    }
+
+    // Update speed every second
+    workerStats.intervalId = setInterval(() => {
+      const spinsSinceLast = workerStats.totalSpins - workerStats.lastTotalSpins;
+      workerStats.lastTotalSpins = workerStats.totalSpins;
+      turboSpeedEl.textContent = fmtNumber(spinsSinceLast);
+    }, 1000);
+
+    // Progress log every 3 seconds
+    workerStats.logIntervalId = setInterval(() => {
+      log.append(`[Turbo] Checked ${fmtNumber(workerStats.totalSpins)} keys...`);
+    }, 3000);
+  }
+
+  function stopWorkers() {
+    if (activeWorkers.length === 0) return;
+
+    clearInterval(workerStats.intervalId);
+    clearInterval(workerStats.logIntervalId);
+
+    activeWorkers.forEach((w) => {
+      w.postMessage({ type: 'stop' });
+      w.terminate();
+    });
+    activeWorkers = [];
+
+    turboBadge.classList.add('hidden');
+    pullBtn.disabled = false;
+    log.append(
+      `Stopped Turbo Search. Total keys checked in session: ${fmtNumber(workerStats.totalSpins)}`
+    );
+  }
+
+  workersToggle.addEventListener('change', (e) => {
+    if (autospinToggle.checked) {
+      if (e.target.checked) {
+        startWorkers();
+      } else {
+        stopWorkers();
+        if (!busy) onPull();
+      }
+    }
+  });
+
   autospinToggle.addEventListener('change', (e) => {
-    if (e.target.checked && !busy) onPull();
+    if (e.target.checked) {
+      if (workersToggle.checked) {
+        startWorkers();
+      } else if (!busy) {
+        onPull();
+      }
+    } else {
+      if (activeWorkers.length > 0) {
+        stopWorkers();
+      }
+    }
   });
 
   // Settings dialog ----------------------------------------------------------
@@ -168,7 +297,7 @@ async function main() {
       const derived = deriveAll(parsed.privKey);
       const candidates = [
         derived.hash160Uncompressed,
-        derived.hash160Compressed,
+        derived.hash160Compressed
       ];
       const hit = await checkHash160s(candidates);
       log.append(
@@ -181,7 +310,7 @@ async function main() {
         winDialog.show({
           privKey: parsed.privKey,
           derived,
-          match: hit,
+          match: hit
         });
       } else {
         setManualResult(
@@ -286,6 +415,7 @@ async function main() {
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (settingsDialog.open || document.getElementById('win-dialog').open) return;
+    if (activeWorkers.length > 0) return; // Ignore spacebar if Web Workers are active
     e.preventDefault();
     onPull();
   });

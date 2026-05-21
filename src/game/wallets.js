@@ -52,3 +52,15 @@ export async function checkHash160s(candidates) {
   }
   return null;
 }
+
+export async function getRawWalletData() {
+  const bloom = await loadBloom();
+  const tbl = await loadTable();
+  return {
+    bloomBits: bloom.bits,
+    bloomM: bloom.m,
+    bloomK: bloom.k,
+    tableBytes: tbl.bytes
+  };
+}
+

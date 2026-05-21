@@ -49,6 +49,10 @@
         </div>
 
         <div class="controls">
+          <div id="turbo-badge" class="hidden" style="font-family: var(--mono); font-size: 0.82rem; color: var(--win); background: rgba(43, 212, 125, 0.15); border: 1px solid rgba(43, 212, 125, 0.3); border-radius: 4px; padding: 0.3rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <span style="display: inline-block; width: 8px; height: 8px; background: var(--win); border-radius: 50%; box-shadow: 0 0 8px var(--win); animation: pulse 1.5s infinite;"></span>
+            <span>Turbo Mode: <strong id="turbo-speed">0</strong> spins/s</span>
+          </div>
           <button class="settings-btn" id="settings-btn" type="button" aria-label="Settings">
             <span aria-hidden="true">⚙</span> Settings
           </button>
@@ -83,6 +87,21 @@
             <input type="checkbox" id="toggle-sound" checked />
             <span>Sound</span>
           </label>
+        </section>
+
+        <section class="settings-section">
+          <h3>Parallel Search (Web Workers)</h3>
+          <p class="settings-hint">
+            Spawn background threads to search for keys using all your CPU cores. UI remains fully responsive.
+          </p>
+          <label class="checkbox">
+            <input type="checkbox" id="toggle-workers" checked />
+            <span>Enable Web Workers (Turbo Mode)</span>
+          </label>
+          <div class="thread-setting" style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.25rem;">
+            <label for="input-threads" style="font-size: 0.9rem; color: var(--ink-dim);">Threads:</label>
+            <input type="number" id="input-threads" class="manual-input" style="width: 70px; padding: 0.35rem 0.5rem;" min="1" max="64" value="4" />
+          </div>
         </section>
 
         <section class="settings-section">
